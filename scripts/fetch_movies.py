@@ -108,7 +108,7 @@ def build_signed_headers(method, url, body, auth_token, user_agent, client_info,
         insert_header(headers, "authorization", bearer)
     return headers
 
-# ---------- REAL HTTP helpers (replace with actual requests) ----------
+# ---------- HTTP helpers (real requests needed) ----------
 BASE_HOSTS = [
     "https://api6.aoneroom.com",
     "https://api5.aoneroom.com",
@@ -123,10 +123,48 @@ RETRY_STATUS_CODES = [403, 406, 407, 429, 500, 502, 503, 504]
 STREAM_REFERER = "https://sportslive.wine"
 
 def post_login(endpoint: str) -> tuple[str, str]:
-    """
-    POST /wefeed-mobile-bff/user-api/visitor-login
-    Returns (token, uid)
-    """
     resp = requests.post(f"{BASE_HOSTS[0]}/user-api/visitor-login", json={}, headers=build_signed_headers("POST", endpoint, None, None, "", "", ""))
     val = resp.json()
-    token = val.get("token
+    token = val.get("token").and_then(lambda t: t.as_str())
+    uid = val.get("uid").or_else(|| val.get("userId")).and_then(lambda v: v.as_str().map(str).or_else(lambda s: s.as_i64().map(str)))
+    return token, uid
+
+def get_json(path_and_query: str) -> Result[dict, Exception]:
+    resp = requests.get(f"{BASE_HOSTS[0]}{path_and_query}", headers=build_signed_headers("GET", path_and_query, None, None, "", "", ""))
+    return resp.json()
+
+# ---------- search_page (fill this in) ----------
+def search_page(query: str, page: int, seen_urls: set) -> List[Dict]:
+    """
+    TODO: Implement.
+    For each page:
+      - POST /user-api/visitor-login to get token/uid
+      - GET search query, parse results, extract title & URL
+      - Follow 'Next' link to next page
+    Return list of dicts with keys 'title' and 'url'.
+    """
+    # Placeholder returns empty list
+    return []
+
+# ---------- main ----------
+def main():
+    movies = []
+    seen_urls = set()
+    query = "some default query"
+    page = 1
+    while True:
+        result = search_page(query, page, seen_urls)
+        for item in result:
+            url = item.get("url")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                movies.append({
+                    "title": item.get("title"),
+                    "url": url,
+                })
+        break  # placeholder stop
+    with open("movies.json", "w") as f:
+        json.dump(movies, f, indent=2)
+
+if __name__ == "__main__":
+    main()
