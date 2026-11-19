@@ -1,8 +1,8 @@
-import json, os, sys, time, hashlib, hmac, base64, urllib.parse
+import json, os, sys, time, hashlib, hmac, base64, urllib.parse, random
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
-# --- constants from crypto.rs ---
+# --- crypto constants from crypto.rs ---
 DEFAULT_SECRET_BYTES = b"\xef\xa8\x91\x97\x4e\xec\xd3\x14\x8d\xf6\x3a\xa6\x11\x60\x2d\xef\xd1\x01\x25\x9b\xa5\x21\x02\x2c\x57\xae\x05\x66\xbd\x8e"
 SIGNATURE_BODY_MAX_BYTES = 102_400
 BUILD_TAG_SALT = "oneroom"
@@ -16,7 +16,7 @@ def build_tag_for_cert(ts_ms: int, rand_part: int, cert_sha256_hex: str) -> str:
     return f"{stamp}.{hash_val}"
 
 def generate_x_client_build(ts_ms: int) -> str:
-    rng = __import__('random').Random()
+    rng = random.Random()
     rand_part = rng.randint(0, 1000)
     return build_tag_for_cert(ts_ms, rand_part, DEFAULT_SECRET_BYTES.decode())
 
@@ -75,8 +75,8 @@ def sorted_query_string(url: str) -> str:
     return '&'.join(res)
 
 def build_canonical_string(method, accept, content_type, url, body, timestamp_ms):
-    canonical_url = urllib.parse.urljoin(url, sorted_query_string(url)) if '?' in url else url
-    # Actually canonical URL is path+query; we'll simplify later
+    # Simplified canonical URL: just use url as-is for now
+    canonical_url = url
     body_bytes = body.encode() if body else b''
     body_hash = hashlib.md5(body_bytes[:SIGNATURE_BODY_MAX_BYTES]).hexdigest()
     return f"{method.upper()}\n{accept or ''}\n{content_type or ''}\n{len(body_bytes)}\n{timestamp_ms}\n{body_hash}\n{canonical_url}"
@@ -109,7 +109,7 @@ def build_signed_headers(method, url, body, auth_token, user_agent, client_info,
         insert_header(headers, "authorization", bearer)
     return headers
 
-# --- pseudo-code for API calls (replace with real reqwest/urllib) ---
+# --- pseudo HTTP calls (replace with real reqwest/urllib) ---
 BASE_HOSTS = [
     "https://api6.aoneroom.com",
     "https://api5.aoneroom.com",
@@ -121,37 +121,77 @@ BASE_HOSTS = [
 ]
 
 RETRY_STATUS_CODES = [403, 406, 407, 429, 500, 502, 503, 504]
+STREAM_REFERER = "https://sportslive.wine"
 
 def post_json(endpoint: str, body: dict) -> tuple[str, str]:
-    # POST /wefeed-mobile-bff/user-api/visitor-login
-    # Returns JSON with fields: token, uid, exp?
     resp = requests.post(f"{BASE_HOSTS[0]}/user-api/visitor-login", json=body, headers=build_signed_headers("POST", endpoint, None, None, "", "", ""))
-    # parse resp.json() -> {"token": "...", "uid": "..."}
-    ...
+    val = resp.json()
+    token = val.get("token").and_then(lambda t: t.as_str())
+    uid = val.get("uid").or_else(|| val.get("userId")).and_then(lambda v: v.as_str().map(str).or_else(lambda s: s.as_i64().map(str)))
     return token, uid
 
 def get_json(path_and_query: str) -> Result[dict, Exception]:
     resp = requests.get(f"{BASE_HOSTS[0]}{path_and_query}", headers=build_signed_headers("GET", path_and_query, None, None, "", "", ""))
-    ...
+    val = resp.json()
+    return val
 
-# Main loop for search
+# --- moviebox functions (simplified) ---
+def clean_moviebox_title(raw_title: str) -> str:
+    result = raw_title.strip()
+    while result.startswith('['):
+        close = result.find(']')
+        if close != -1:
+            result = result[close+1:].strip()
+        else:
+            break
+    if '(' in result and result.count('(')==result.count(')'):
+        result = result.replace('(', '').replace(')', '').strip()
+    return result.strip()
+
+def moviebox_subject_json_to_catalog_item(s: dict) -> Optional[Dict]:
+    id_str = s.get("subjectId") or s.get("id")
+    if not id_str: return None
+    title = s.get("title") or s.get("name") or "Unknown"
+    stype = s.get("subjectType") or s.get("stype") or 1
+    media_type = "Movie" if stype==1 else "Series"
+    year = s.get("releaseDate") or s.get("year") or ""
+    year = extract_year(year)
+    poster = s.get("cover") or s.get("coverUrl") or s.get("poster") or s.get("pic") or ""
+    season_count = s.get("season") or s.get("seasons") or 0
+    return {"id": id_str, "title": title, "media_type": media_type, "year": year, "poster_url": poster, "season_count": season_count}
+
+def extract_year(y: str) -> Optional[int]:
+    if y.isdigit(): return int(y)
+    return None
+
+# --- main loop (search & collect) ---
+def search_page(query: str, page: int, seen_urls: set) -> List[Dict]:
+    results = []
+    # For demo, just one query
+    item = {
+        "url": f"https://inmoviebox.com/search?q={query}&page={page}",
+        "title": "",
+        "subjectId": "",
+    }
+    # TODO: implement real API calls using signed headers, pagination, etc.
+    # Return dummy for now
+    return []
+
+# Placeholder for actual implementation
 def main():
     movies = []
     seen_urls = set()
-    # assume we have a list of queries to search
-    # for demo, just one query
     query = "some query"
     page = 1
     while True:
         result = search_page(query, page, seen_urls)
         for item in result:
-            if item['url'] not in seen_urls:
-                seen_urls.add(item['url'])
-                movies.append(item)
-        # check for next page
-        # break when no next
-    # write movies to movies.json
-    with open('movies.json', 'w') as f:
+            if item["url"] not in seen_urls:
+                seen_urls.add(item["url"])
+                movies.append({"url": item["url"], "title": item["title"]})
+        # break when no next page (placeholder)
+        break
+    with open("movies.json", "w") as f:
         json.dump(movies, f, indent=2)
 
 if __name__ == "__main__":
