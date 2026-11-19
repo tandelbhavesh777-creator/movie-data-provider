@@ -11,9 +11,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
         with:
-          token: ${{ secrets.lookatmy }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -25,7 +25,7 @@ jobs:
 
       - name: Run fetch script
         env:
-          GITHUB_TOKEN: ${{ secrets.lookatmy }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/fetch_movies.py
 
       - name: Commit & push
